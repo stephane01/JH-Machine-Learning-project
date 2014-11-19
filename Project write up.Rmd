@@ -1,0 +1,131 @@
+---
+title: "Machine Learning project"
+author: "Stephane Paccaud"
+date: "Sunday, November 16, 2014"
+output: html_document
+---
+
+## introduction (partially borrowed from the Human Activity Recognition website)
+
+In this project, we will use data collected by the Human ACtivity Recognition (HAR) team on a set of volunteers, in order to predict the type of movements performed by other individuals who are wearing the same sensors as the controlled group.
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset). 
+
+###Citation
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3JRQ5LzHq
+
+
+## loading and preparing the data
+
+We start by loading the data in R:
+
+```{r echo=FALSE, results ="hide", warning=FALSE, message=FALSE}
+library(caret)
+setwd("C:/Users/Stephane/Dropbox/coursera/John Hopkins - the data scientist toolbox/Session 8 - Practical Machine Learning/Projet")
+#training_initial <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", na.strings = c("NA",""))
+#test_initial <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+```
+
+We now want to start with some exploratory data analysis, in order to:  
+1. clean up the data and filter out unused data
+2. get a feel about what type of methods we should use and most important data we cshould consider
+
+In the data set, the data that we want to predict is the last feature (*classe*), a factor variable. All the other 159 features are potential predictors.
+
+We first notice that the data has a lot of features that have a lot of NAs(>90% of the measures are NAs for these features). So we probably want to filter them out. In an ideal world we would want to undeerstand this better, but for the sake of this exercise we will simply filter out.
+
+```{r}
+filter <- !colSums(is.na(input_initial))>10 # we put 10 as a (somewhat arbitrary) cut off value
+input <- input_initial[,filter]
+test <- test_initial[,filter]
+```
+
+I have labelled the training set as 'input' and the test set as 'test'. Please not that for cross validation purposes, i will later decompose the 'input' data set into a 'training' and a 'validation' data set. The 'test' data set is not used for cross validation, but for the prediction.
+
+We have now significantly reduced the number of potential predictors, but we still notice that, even though most of the predictors are numerical variables, a few of them (the first 7 features) are factor variables with some redundancies. If we plot these vs the *classe* variable, we get the following representations:
+
+```{r}
+par(mfrow=c(1,2))
+plot(input$user_name, input$classe, main = "name") # user name not significant apparently, remove
+plot(input$new_window, input$classe, main = "window") # training windows not significant apparently, remove
+```
+
+Both the user names and the new_window variables don't seem to be a significant predictor of the outcome; and we should also discard the time stamps from the analysis, as the observations should not be time dependant. Therefore, we can further discard the features 1 to 7. We finally take out the last column of the test set, as this is a dummy variable in the downloaded package, and this is precisely what we ultimately want to predict.
+These operations are executed below
+
+```{r}
+input <- input[,-c(1, 2, 3, 4, 5, 6,7)]
+test <- test[,-c(1, 2, 3, 4, 5, 6,7)]
+test <- test[,-53]
+```
+
+...and we end up with 52 numerical predictors, and 1 factor variable to predict; and clean sets of data to perform our analysis.
+
+## some preliminary exploratory data analysis
+
+We can start by having a summarized look at our data with a summary plot of all the predictors vs the variable to predict. To obtain a better visualization, i start by preprocessing the data to center it on zero, and rescale it
+
+```{r exploratory, fig.height=10, fig.width=8}
+preTrain <- preProcess(input[,-53], method = c("center", "scale"))
+trainStand <- predict(preTrain, input[,-53])
+featurePlot(x=trainStand[,1:52],y = input[,53], "box", ylim=c(-5,5))
+```
+
+Although it is a bit hard to see due to the large number of variables, we can't really determine a priori that one or two features will be a sole predictor of of the outcome, and it is also hard to spot any feature that would be obviously non influencial. So i have decided to keep them all for the prediction, and to use a **random forest** algorithm to predict the outcome.
+
+## predictive analysis
+
+to run the analysis, i first start to split the input data into a training set and a validation set, in order to perform **cross validation** later on.
+
+```{r}
+inTrain <- createDataPartition(y=input$classe, p=0.75, list=FALSE)
+training <- input[inTrain,]
+validation <- input[-inTrain,]
+```
+We note the respective sizes of the training and validation sets:
+```{r, echo = FALSE}
+dim(training)
+dim(validation)
+```
+
+I am now going to fit a **random forest** model to the training dataset
+```{r modelfitting, cache=TRUE, message=FALSE, warning=FALSE}
+set.seed(12345)
+#modelFit <- train(classe ~., data = training, method = "rpart")
+#modelFit2 <- train(classe ~., data = training, preProcess = "pca", method = "rpart")
+#modelFit3 <- train(classe ~., data = training, preProcess = c("center", "scale"), method = "rpart")
+modelFit4 <- train(classe ~., data = training, preProcess = c("center", "scale"), method = "rf")
+#modelFit5 <- train(classe ~., data = training, method = "rf")
+
+```
+
+As can be inferred by the code, i have tried several models, with and without preprocessing, and decided to keep the random forest one, which gave by far the best outcome (for information, other models, like linear regression or simple tree models, were at best 50% accurate).
+
+Now that we have fit the model with the validation data, we want to do **cross validation** with the validation data:
+
+```{r crossvalidation, message=FALSE, warning=FALSE}
+results <- confusionMatrix(validation$classe, predict(modelFit4, validation))
+results$table
+```
+
+We note that the results seem pretty accurate. we can confirm by looking at the **overall error statistics** :
+```{r overallstats, echo = FALSE, message=FALSE, warning=FALSE}
+results$overall
+```
+
+This algorithm outputs a very high accuracy and Kappa value. We can also get the specific results for every level in the predicted variable:
+```{r byclassstats, echo = FALSE, message=FALSE, warning=FALSE}
+results$byClass
+```
+
+In conclusion, we seem to have found a very good predictive model, which works well when cross validating in teh validation set, and we will now apply it to the test set.
+
+## Application of the predictive model to the test set
+
+For the test data set, the predicted outcome is:
+```{r prediction, message=FALSE, warning=FALSE}
+prediction <- predict(modelFit4, test)
+prediction
+```
+
